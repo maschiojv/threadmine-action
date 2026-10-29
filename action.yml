@@ -1,5 +1,5 @@
 name: ThreadMine Hung Test Diagnosis
-description: When a JVM test hangs and the job times out, dump the stuck test JVM and post a ThreadMine diagnosis to the job summary and the PR.
+description: When a JVM test hangs in CI, dump the stuck test JVM and post a ThreadMine diagnosis to the job summary and the PR.
 author: Felipe Maschio
 branding:
   icon: activity
