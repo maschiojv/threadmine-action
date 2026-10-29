@@ -87616,6 +87616,8 @@ async function runPost(deps) {
         const md = (0, render_1.renderReport)(entries, {
             analyzeEnabled: deps.analyzeEnabled, artifactName: deps.artifactName, runUrl: deps.runUrl, marker: deps.marker,
         });
+        // Also in the step log: searchable, and readable even when the summary page does not load.
+        deps.info(md);
         try {
             await deps.writeSummary(md);
         }
