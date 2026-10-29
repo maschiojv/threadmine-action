@@ -87500,15 +87500,18 @@ main().catch((e) => core.warning(`ThreadMine action failed: ${e instanceof Error
 /***/ }),
 
 /***/ 97055:
-/***/ ((__unused_webpack_module, exports) => {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.commentMarker = commentMarker;
 exports.renderReport = renderReport;
+const stacks_1 = __nccwpck_require__(99994);
 const MAX_THREADS = 5;
 const MAX_STACK_LINES = 5;
+/** Threads whose stacks are taken from the dump when the API sends no stack summary. */
+const MAX_THREAD_STACKS = 3;
 const FOOTER = 'Thread dumps were analyzed at threadmine.dev. Set `analyze: false` to keep them only in the workflow artifact.';
 /** One comment per job and OS: a re-run updates it, matrix legs on other OSes get their own. */
 function commentMarker(job, os) {
@@ -87526,7 +87529,7 @@ function renderReport(entries, ctx) {
             lines.push(`Analysis skipped: ${outcome.reason}`);
         }
         else {
-            lines.push(...renderDetail(outcome.detail));
+            lines.push(...renderDetail(outcome.detail, entry.dump.content));
             lines.push(`Full report (expires in 7 days): ${outcome.reportUrl}`);
         }
         lines.push('');
@@ -87534,7 +87537,7 @@ function renderReport(entries, ctx) {
     lines.push(ctx.analyzeEnabled ? FOOTER : `Dumps are in the ${ctx.artifactName} artifact of ${ctx.runUrl}.`);
     return lines.join('\n') + '\n';
 }
-function renderDetail(detail) {
+function renderDetail(detail, dumpContent) {
     const lines = [];
     const score = detail.healthScore ?? detail.sumarioExecutivo?.healthScore;
     if (score != null)
@@ -87555,8 +87558,17 @@ function renderDetail(detail) {
         if (p.recomendacao?.titulo)
             lines.push(`- Recommendation: ${p.recomendacao.titulo}`);
         const stack = ev?.stackResumo ?? [];
-        if (stack.length > 0)
+        if (stack.length > 0) {
             lines.push('', '```', ...stack.slice(0, MAX_STACK_LINES), '```');
+        }
+        else {
+            // Some detectors (deadlock) send no stack summary: show where each thread is, from the dump.
+            for (const name of names.slice(0, MAX_THREAD_STACKS)) {
+                const frames = (0, stacks_1.threadStack)(dumpContent, name, MAX_STACK_LINES);
+                if (frames.length > 0)
+                    lines.push('', `\`${name}\`:`, '```', ...frames, '```');
+            }
+        }
         lines.push('');
     }
     return lines;
@@ -87633,6 +87645,42 @@ async function runPost(deps) {
     catch (e) {
         deps.warn(`ThreadMine action failed: ${(0, collect_1.errorMessage)(e)}`);
     }
+}
+
+
+/***/ }),
+
+/***/ 99994:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.threadStack = threadStack;
+const FRAME = /^\s*(at |- (waiting to lock|locked|parking to wait for|waiting on) )/;
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+/**
+ * Top stack lines of one thread in a jstack / jcmd Thread.print dump: frames plus the lock lines
+ * that say what it holds and waits for. Only the thread header counts ("name" followed by #id,
+ * daemon, prio= or tid=), not the same name quoted in the deadlock summary.
+ */
+function threadStack(dump, threadName, maxLines) {
+    const header = new RegExp(`^"${escapeRegExp(threadName)}"\\s+(#|daemon|prio=|tid=)`);
+    const lines = dump.split(/\r?\n/);
+    const start = lines.findIndex((l) => header.test(l));
+    if (start < 0)
+        return [];
+    const out = [];
+    for (let i = start + 1; i < lines.length && out.length < maxLines; i++) {
+        const line = lines[i];
+        if (line.trim() === '')
+            break;
+        if (FRAME.test(line))
+            out.push(line.trim());
+    }
+    return out;
 }
 
 
