@@ -1,0 +1,4 @@
+2320 org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.14
+2402 worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 1'
+2282 /home/runner/work/_temp/.gradle-actions/gradle-installations/installs/gradle-8.14/lib/gradle-gradle-cli-main-8.14.jar test --no-daemon
+2751 jdk.jcmd/sun.tools.jcmd.JCmd -l

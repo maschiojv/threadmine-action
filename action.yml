@@ -1,0 +1,28 @@
+name: ThreadMine Hung Test Diagnosis
+description: When a JVM test hangs and the job times out, dump the stuck test JVM and post a ThreadMine diagnosis to the job summary and the PR.
+author: Felipe Maschio
+branding:
+  icon: activity
+  color: orange
+inputs:
+  analyze:
+    description: Send the thread dumps to threadmine.dev for analysis. With false, dumps are only kept as a workflow artifact.
+    required: false
+    default: 'true'
+  comment:
+    description: Post the diagnosis as a pull request comment (needs pull-requests write permission).
+    required: false
+    default: 'true'
+  github-token:
+    description: Token used to post the pull request comment.
+    required: false
+    default: ${{ github.token }}
+  api-url:
+    description: ThreadMine API base URL. Only for testing.
+    required: false
+    default: https://api.threadmine.dev
+runs:
+  using: node24
+  main: dist/main/index.js
+  post: dist/post/index.js
+  post-if: failure() || cancelled()

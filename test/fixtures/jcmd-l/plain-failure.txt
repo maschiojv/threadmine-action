@@ -1,0 +1,2 @@
+2320 org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.14
+2751 jdk.jcmd/sun.tools.jcmd.JCmd -l

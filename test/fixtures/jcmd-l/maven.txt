@@ -1,0 +1,3 @@
+2466 /home/runner/work/x/x/target/surefire/surefirebooter-20261029122926452_3.jar /home/runner/work/x/x/target/surefire 2026-10-29T12-29-26_100-jvmRun1 surefire-123tmp surefire_0-456tmp
+2363 org.codehaus.plexus.classworlds.launcher.Launcher -B -q test
+2440 jdk.jcmd/sun.tools.jcmd.JCmd -l
