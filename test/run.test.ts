@@ -8,7 +8,7 @@ const mkDump = (i: number): CollectedDump => ({ source: 'live-jvm', label: `sure
 const ok: AnalysisOutcome = { ok: true, publicToken: 't', reportUrl: 'https://threadmine.dev/resultado/t', detail: { id: 'a', status: 'CONCLUIDA' } }
 
 function harness(over: Partial<PostDeps> = {}, dumps: CollectedDump[] = [mkDump(1)]) {
-  const log = { analyzed: 0, uploaded: [] as string[], summaries: [] as string[], comments: [] as string[], warnings: [] as string[] }
+  const log = { infos: [] as string[], analyzed: 0, uploaded: [] as string[], summaries: [] as string[], comments: [] as string[], warnings: [] as string[] }
   const commentApi: CommentApi = {
     listComments: async () => [],
     createComment: async (_t, b) => { log.comments.push(b) },
@@ -26,7 +26,7 @@ function harness(over: Partial<PostDeps> = {}, dumps: CollectedDump[] = [mkDump(
     prTarget: null,
     commentApi,
     warn: (m) => { log.warnings.push(m) },
-    info: () => {},
+    info: (m) => { log.infos.push(m) },
     ...over,
   }
   return { deps, log }
@@ -70,6 +70,12 @@ describe('runPost', () => {
     await expect(runPost(deps)).resolves.toBeUndefined()
     expect(log.warnings.join('\n')).toContain('artifact service down')
     expect(log.summaries).toHaveLength(1)
+  })
+
+  it('writes the report to the step log too', async () => {
+    const { deps, log } = harness()
+    await runPost(deps)
+    expect(log.infos.join(String.fromCharCode(10))).toContain(log.summaries[0])
   })
 
   it('passes collection warnings on', async () => {
