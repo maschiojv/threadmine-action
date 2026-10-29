@@ -22,3 +22,10 @@ jobs:
             echo "::error::dist/ is stale: run npm run build and commit dist/"
             exit 1
           fi
+      # ncc orders some bundled modules differently on Windows; the committed dist/ is the Linux build.
+      - name: Upload the Linux build of dist/
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
