@@ -87305,6 +87305,8 @@ exports.selectHungTestJvms = selectHungTestJvms;
 exports.findJcmd = findJcmd;
 const node_path_1 = __nccwpck_require__(76760);
 const LINE = /^(\d+)\s+(.+)$/;
+/** Maven phases and goals that run tests. A launcher running anything else (spring-boot:run, exec:java) is the app. */
+const MAVEN_TEST_GOAL = /(^|\s)(test|integration-test|verify|install|deploy|package|surefire:test|failsafe:integration-test)(\s|$)/;
 function parseJcmdList(output) {
     const list = [];
     for (const raw of output.split(/\r?\n/)) {
@@ -87335,7 +87337,7 @@ function selectHungTestJvms(list) {
     });
     if (forks.length > 0)
         return forks;
-    return list.filter((p) => classifyJvm(p) === 'maven-launcher');
+    return list.filter((p) => classifyJvm(p) === 'maven-launcher' && MAVEN_TEST_GOAL.test(p.command));
 }
 function findJcmd(env, exists) {
     const javaHome = env.JAVA_HOME;
@@ -87470,11 +87472,12 @@ async function main() {
     }
     const job = env.GITHUB_JOB ?? 'job';
     const os = env.RUNNER_OS ?? 'unknown';
+    const key = core.getInput('key').trim();
     const jcmd = (0, jvms_1.findJcmd)(env, node_fs_1.existsSync);
     await (0, run_1.runPost)({
         analyzeEnabled: core.getBooleanInput('analyze'),
-        marker: (0, render_1.commentMarker)(job, os),
-        artifactName: (0, run_1.artifactName)(job, os, () => (0, node_crypto_1.randomBytes)(3).toString('hex')),
+        marker: (0, render_1.commentMarker)(job, os, key),
+        artifactName: (0, run_1.artifactName)(job, os, key, () => (0, node_crypto_1.randomBytes)(3).toString('hex')),
         runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
         collect: () => (0, collect_1.collectDumps)({
             jcmd,
@@ -87485,7 +87488,8 @@ async function main() {
             startedAt: Number(core.getState('started')) || null,
             modifiedAt: async (p) => (await (0, promises_1.stat)(p)).mtimeMs,
         }),
-        analyze: (d) => (0, threadmine_1.analyzeDump)(d, { apiUrl: core.getInput('api-url') }),
+        analyze: (d, deadline) => (0, threadmine_1.analyzeDump)(d, { apiUrl: core.getInput('api-url'), deadline }),
+        now: Date.now,
         uploadArtifact,
         writeSummary: async (md) => { await core.summary.addRaw(md).write(); },
         prTarget: prTarget(),
@@ -87513,12 +87517,19 @@ const MAX_STACK_LINES = 5;
 /** Threads whose stacks are taken from the dump when the API sends no stack summary. */
 const MAX_THREAD_STACKS = 3;
 const FOOTER = 'Thread dumps were analyzed at threadmine.dev. Set `analyze: false` to keep them only in the workflow artifact.';
-/** One comment per job and OS: a re-run updates it, matrix legs on other OSes get their own. */
-function commentMarker(job, os) {
-    return `<!-- threadmine-action:${job}:${os} -->`;
+/** One comment per job, OS and key: a re-run updates it, other matrix legs get their own. */
+function commentMarker(job, os, key) {
+    return `<!-- threadmine-action:${job}:${os}${key ? `:${key}` : ''} -->`;
 }
 function renderReport(entries, ctx) {
-    const lines = [ctx.marker, '## ThreadMine: hung test diagnosis', ''];
+    const lines = [
+        ctx.marker,
+        '## ThreadMine: hung test diagnosis',
+        '',
+        'The job failed or was cancelled while these test JVMs were still running. A hang keeps them alive, '
+            + 'and so does a run cancelled by hand or by a newer push.',
+        '',
+    ];
     for (const entry of entries) {
         lines.push(`### ${entry.dump.label}`, '');
         const outcome = entry.outcome;
@@ -87583,7 +87594,7 @@ function renderDetail(detail, dumpContent) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.MAX_ANALYSES_PER_RUN = void 0;
+exports.ANALYSIS_BUDGET_MS = exports.MAX_ANALYSES_PER_RUN = void 0;
 exports.artifactName = artifactName;
 exports.runPost = runPost;
 const collect_1 = __nccwpck_require__(11973);
@@ -87591,9 +87602,12 @@ const comment_1 = __nccwpck_require__(62246);
 const render_1 = __nccwpck_require__(97055);
 /** The anonymous endpoint allows 5 analyses per hour per IP; leave room for a re-run. */
 exports.MAX_ANALYSES_PER_RUN = 3;
+/** All analyses of one job share this budget, so a slow API cannot hold the runner for long. */
+exports.ANALYSIS_BUDGET_MS = 240_000;
 /** Artifact names must be unique within a run, and matrix legs share the job id. */
-function artifactName(job, os, randomHex) {
-    return `threadmine-thread-dumps-${job}-${os.toLowerCase()}-${randomHex()}`;
+function artifactName(job, os, key, randomHex) {
+    const safeKey = key.replace(/[^A-Za-z0-9._-]+/g, '-');
+    return `threadmine-thread-dumps-${job}-${os.toLowerCase()}-${safeKey ? `${safeKey}-` : ''}${randomHex()}`;
 }
 /** The post step. Every failure becomes a warning: this action must never fail the job. */
 async function runPost(deps) {
@@ -87611,18 +87625,23 @@ async function runPost(deps) {
             deps.warn(`Could not upload the thread dumps artifact: ${(0, collect_1.errorMessage)(e)}`);
         }
         const entries = [];
+        const deadline = deps.now() + exports.ANALYSIS_BUDGET_MS;
+        let rateLimited = false;
         for (const [i, dump] of dumps.entries()) {
-            if (!deps.analyzeEnabled || i >= exports.MAX_ANALYSES_PER_RUN) {
+            // Past the cap, the budget or a rate limit, the dump stays in the artifact only.
+            if (!deps.analyzeEnabled || i >= exports.MAX_ANALYSES_PER_RUN || rateLimited || deps.now() >= deadline) {
                 entries.push({ dump });
                 continue;
             }
             let outcome;
             try {
-                outcome = await deps.analyze(dump);
+                outcome = await deps.analyze(dump, deadline);
             }
             catch (e) {
                 outcome = { ok: false, reason: (0, collect_1.errorMessage)(e) };
             }
+            if (!outcome.ok && outcome.rateLimited)
+                rateLimited = true;
             entries.push({ dump, outcome });
         }
         const md = (0, render_1.renderReport)(entries, {
@@ -87636,7 +87655,10 @@ async function runPost(deps) {
         catch (e) {
             deps.warn(`Could not write the job summary: ${(0, collect_1.errorMessage)(e)}`);
         }
-        if (deps.prTarget) {
+        // A run cancelled mid-test looks like a hang (its JVMs are alive too). Only a detected problem
+        // earns a PR comment; the job summary and the log always get the report.
+        const foundProblem = entries.some((e) => e.outcome?.ok && (e.outcome.detail.problemasDetectados?.problemas?.length ?? 0) > 0);
+        if (deps.prTarget && foundProblem) {
             const result = await (0, comment_1.upsertPrComment)(deps.commentApi, deps.prTarget, md, deps.marker);
             if (result.warning)
                 deps.warn(result.warning);
@@ -87701,7 +87723,14 @@ const SITE_URL = 'https://threadmine.dev';
 const POLL_INTERVAL_MS = 3000;
 const POLL_LIMIT_MS = 180_000;
 const NETWORK_BACKOFF_MS = [1000, 2000];
+/** A half-dead API must not hold the user's runner: each request gives up after this. */
+const REQUEST_TIMEOUT_MS = 30_000;
 class AnalysisFailed extends Error {
+    rateLimited;
+    constructor(message, rateLimited = false) {
+        super(message);
+        this.rateLimited = rateLimited;
+    }
 }
 /** Upload one dump to the public endpoint and wait for the result. Never throws. */
 async function analyzeDump(dump, opts) {
@@ -87709,7 +87738,7 @@ async function analyzeDump(dump, opts) {
     const now = opts.now ?? Date.now;
     try {
         const { tokenPublico } = await api.upload(dump);
-        const deadline = now() + POLL_LIMIT_MS;
+        const deadline = Math.min(now() + POLL_LIMIT_MS, opts.deadline ?? Infinity);
         for (;;) {
             const result = await api.get(`/api/v1/public/analises/${encodeURIComponent(tokenPublico)}`);
             if (result.status === 'CONCLUIDA') {
@@ -87721,12 +87750,14 @@ async function analyzeDump(dump, opts) {
                 return { ok: false, reason: `ThreadMine could not analyze this dump${motivo}` };
             }
             if (now() + POLL_INTERVAL_MS > deadline) {
-                return { ok: false, reason: `ThreadMine did not finish the analysis within ${POLL_LIMIT_MS / 1000} s` };
+                return { ok: false, reason: `ThreadMine did not finish the analysis in time (limit ${POLL_LIMIT_MS / 1000} s)` };
             }
             await api.sleep(POLL_INTERVAL_MS);
         }
     }
     catch (e) {
+        if (e instanceof AnalysisFailed && e.rateLimited)
+            return { ok: false, reason: e.message, rateLimited: true };
         return { ok: false, reason: (0, collect_1.errorMessage)(e) };
     }
 }
@@ -87758,6 +87789,7 @@ class PublicApi {
                 response = await this.fetchFn(`${this.baseUrl}${path}`, {
                     method,
                     headers: { 'Accept-Language': 'en' },
+                    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
                     ...(body ? { body: body() } : {}),
                 });
                 break;
@@ -87775,7 +87807,7 @@ class PublicApi {
         if (response.status === 429) {
             const retryAfter = response.headers.get('retry-after');
             const when = retryAfter ? `retry after ${retryAfter}s` : 'retry later';
-            throw new AnalysisFailed(`ThreadMine rate limit reached (5 analyses per hour per IP); ${when}`);
+            throw new AnalysisFailed(`ThreadMine rate limit reached (5 analyses per hour per IP); ${when}`, true);
         }
         const detail = typeof problem.detail === 'string' ? `: ${problem.detail}` : '';
         throw new AnalysisFailed(`ThreadMine API error (HTTP ${response.status})${detail}`);
