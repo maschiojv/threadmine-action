@@ -16,6 +16,9 @@ export interface CollectDeps {
   /** Every file under root, skipping node_modules and .git. */
   listFiles(root: string): Promise<string[]>
   readFile(p: string): Promise<string>
+  /** When the main step ran (ms epoch); null when unknown. */
+  startedAt: number | null
+  modifiedAt(p: string): Promise<number>
 }
 
 /** Written by Surefire/Failsafe 3.6+ right before killing a fork past forkedProcessTimeoutInSeconds. */
@@ -59,6 +62,8 @@ export async function collectDumps(deps: CollectDeps): Promise<{ dumps: Collecte
     const name = basename(file)
     if (!SUREFIRE_TIMEOUT_DUMP.test(name)) continue
     try {
+      // A file older than this job (committed, or left by a cached workspace) is not this run's hang.
+      if (deps.startedAt !== null && (await deps.modifiedAt(file)) < deps.startedAt) continue
       dumps.push({ source: 'surefire-timeout', label: name, fileName: name, content: await deps.readFile(file) })
     } catch (e) {
       warnings.push(`Could not read ${file}: ${errorMessage(e)}`)

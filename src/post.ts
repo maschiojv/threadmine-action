@@ -4,7 +4,7 @@ import { DefaultArtifactClient } from '@actions/artifact'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { collectDumps, type CollectedDump } from './collect'
@@ -96,6 +96,8 @@ async function main(): Promise<void> {
       runJcmd: async (args) => (await execFileAsync(jcmd!, args, { timeout: 20_000, maxBuffer: 64 * 1024 * 1024 })).stdout,
       listFiles,
       readFile: (p) => readFile(p, 'utf8'),
+      startedAt: Number(core.getState('started')) || null,
+      modifiedAt: async (p) => (await stat(p)).mtimeMs,
     }),
     analyze: (d) => analyzeDump(d, { apiUrl: core.getInput('api-url') }),
     uploadArtifact,

@@ -15,6 +15,8 @@ function deps(over: Partial<CollectDeps> & { list?: string; files?: string[] }):
     runJcmd: async (args) => (args[0] === '-l' ? list : `dump of ${args[0]}`),
     listFiles: async () => over.files ?? [],
     readFile: async (p) => readFileSync(p, 'utf8'),
+    startedAt: 1000,
+    modifiedAt: async () => 2000,
     ...over,
   }
 }
@@ -58,6 +60,11 @@ describe('collectDumps', () => {
     expect(dumps.map((d) => d.label)).toEqual(['surefire-fork pid 11'])
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('10')
+  })
+
+  it('ignores surefire files older than the job start', async () => {
+    const { dumps } = await collectDumps(deps({ files: [surefireFile], modifiedAt: async () => 500 }))
+    expect(dumps).toEqual([])
   })
 
   it('returns nothing for a plain failure', async () => {

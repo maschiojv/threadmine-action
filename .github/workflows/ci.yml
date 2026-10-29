@@ -15,4 +15,10 @@ jobs:
       - run: npx vitest run test/
       - run: npm run build
       - name: dist/ is committed and up to date
-        run: git diff --exit-code --stat dist/
+        run: |
+          if ! git diff --quiet dist/; then
+            git diff --stat dist/
+            git diff dist/ | head -80
+            echo "::error::dist/ is stale: run npm run build and commit dist/"
+            exit 1
+          fi

@@ -87244,6 +87244,9 @@ async function collectDumps(deps) {
         if (!SUREFIRE_TIMEOUT_DUMP.test(name))
             continue;
         try {
+            // A file older than this job (committed, or left by a cached workspace) is not this run's hang.
+            if (deps.startedAt !== null && (await deps.modifiedAt(file)) < deps.startedAt)
+                continue;
             dumps.push({ source: 'surefire-timeout', label: name, fileName: name, content: await deps.readFile(file) });
         }
         catch (e) {
@@ -87479,6 +87482,8 @@ async function main() {
             runJcmd: async (args) => (await execFileAsync(jcmd, args, { timeout: 20_000, maxBuffer: 64 * 1024 * 1024 })).stdout,
             listFiles,
             readFile: (p) => (0, promises_1.readFile)(p, 'utf8'),
+            startedAt: Number(core.getState('started')) || null,
+            modifiedAt: async (p) => (await (0, promises_1.stat)(p)).mtimeMs,
         }),
         analyze: (d) => (0, threadmine_1.analyzeDump)(d, { apiUrl: core.getInput('api-url') }),
         uploadArtifact,
