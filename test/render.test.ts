@@ -77,3 +77,20 @@ describe('renderReport', () => {
     expect(renderReport([clean], ctx)).toContain('No problems detected')
   })
 })
+
+describe('renderReport without a stack summary from the API', () => {
+  it('shows the stacks of the involved threads from the dump itself', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const { join } = require('node:path') as typeof import('node:path')
+    const content = readFileSync(join(__dirname, 'fixtures', 'surefire-reports', 'surefire-timeout-jstack-1-4242.txt'), 'utf8')
+    const detail: AnalysisDetail = {
+      id: 'a', status: 'CONCLUIDA',
+      problemasDetectados: { problemas: [{ tipo: 'DEADLOCK', severidade: 'CRITICAL', evidencia: { nomesThreads: ['worker-A', 'worker-B'], stackResumo: [] } }] },
+    }
+    const md = renderReport([{ dump: { ...dump, content }, outcome: { ok: true, publicToken: 't', reportUrl: 'u', detail } }], ctx)
+    expect(md).toContain('`worker-A`:')
+    expect(md).toContain('at demo.DeadlockTest.lambda$hangs$0(DeadlockTest.java:10)')
+    expect(md).toContain('`worker-B`:')
+    expect(md).toContain('at demo.DeadlockTest.lambda$hangs$1(DeadlockTest.java:11)')
+  })
+})

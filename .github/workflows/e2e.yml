@@ -4,6 +4,7 @@ name: e2e
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
     inputs:
       analyze:
@@ -11,7 +12,11 @@ on:
         type: boolean
         default: false
 env:
-  ANALYZE: ${{ inputs.analyze && 'true' || 'false' }}
+  # Pull requests exercise the full path (analysis + PR comment); pushes only collect dumps.
+  ANALYZE: ${{ (inputs.analyze || github.event_name == 'pull_request') && 'true' || 'false' }}
+permissions:
+  contents: read
+  pull-requests: write
 jobs:
   maven-job-timeout:
     runs-on: ubuntu-latest
