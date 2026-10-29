@@ -1,0 +1,30 @@
+2026-10-29 12:31:30
+Full thread dump OpenJDK 64-Bit Server VM (21.0.13+9-LTS mixed mode, sharing):
+
+"worker-A" #31 [2501] prio=5 os_prio=0 cpu=1.20ms elapsed=125.40s tid=0x00007f00a0001000 nid=2501 waiting for monitor entry  [0x00007f0080001000]
+   java.lang.Thread.State: BLOCKED (on object monitor)
+	at demo.DeadlockTest.lambda$hangs$0(DeadlockTest.java:10)
+	- waiting to lock <0x00000000c0000020> (a java.lang.Object)
+	- locked <0x00000000c0000010> (a java.lang.Object)
+	at java.lang.Thread.runWith(java.base@21.0.13/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.13/Thread.java:1583)
+
+"worker-B" #32 [2502] prio=5 os_prio=0 cpu=1.10ms elapsed=125.40s tid=0x00007f00a0002000 nid=2502 waiting for monitor entry  [0x00007f0080002000]
+   java.lang.Thread.State: BLOCKED (on object monitor)
+	at demo.DeadlockTest.lambda$hangs$1(DeadlockTest.java:11)
+	- waiting to lock <0x00000000c0000010> (a java.lang.Object)
+	- locked <0x00000000c0000020> (a java.lang.Object)
+	at java.lang.Thread.runWith(java.base@21.0.13/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.13/Thread.java:1583)
+
+Found one Java-level deadlock:
+=============================
+"worker-A":
+  waiting to lock monitor 0x00007f00b0001000 (object 0x00000000c0000020, a java.lang.Object),
+  which is held by "worker-B"
+
+"worker-B":
+  waiting to lock monitor 0x00007f00b0002000 (object 0x00000000c0000010, a java.lang.Object),
+  which is held by "worker-A"
+
+Found 1 deadlock.
