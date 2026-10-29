@@ -1,0 +1,88 @@
+# Each test job hangs on purpose (a deadlocked test) or fails on purpose, so they end red.
+# The green signal is the `verify` job.
+name: e2e
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      analyze:
+        description: Send the dumps to threadmine.dev (uses the anonymous hourly limit of the runner IP)
+        type: boolean
+        default: false
+env:
+  ANALYZE: ${{ inputs.analyze && 'true' || 'false' }}
+jobs:
+  maven-job-timeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: ./
+        with: { analyze: '${{ env.ANALYZE }}' }
+      - run: mvn -B -q test
+        working-directory: e2e/maven
+
+  maven-step-timeout:
+    runs-on: macos-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: ./
+        with: { analyze: 'false' }
+      - run: mvn -B -q test
+        working-directory: e2e/maven
+        timeout-minutes: 3
+
+  gradle-daemon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.14' }
+      - uses: ./
+        with: { analyze: 'false' }
+      - run: gradle test
+        working-directory: e2e/gradle
+        timeout-minutes: 3
+
+  plain-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: ./
+        with: { analyze: '${{ env.ANALYZE }}' }
+      - run: mvn -B -q test
+        working-directory: e2e/plain-failure
+
+  verify:
+    needs: [maven-job-timeout, maven-step-timeout, gradle-daemon, plain-failure]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: threadmine-thread-dumps-*
+          path: dumps
+      - name: Hung jobs uploaded a dump with the deadlock, the plain failure uploaded nothing
+        run: |
+          set -eu
+          ls -R dumps || true
+          for job in maven-job-timeout maven-step-timeout gradle-daemon; do
+            dir=$(ls -d dumps/threadmine-thread-dumps-$job-* 2>/dev/null | head -1)
+            if [ -z "$dir" ]; then echo "::error::no dump artifact for $job"; exit 1; fi
+            grep -l "Found one Java-level deadlock" "$dir"/*.txt || { echo "::error::no deadlock in $job dumps"; exit 1; }
+          done
+          if ls -d dumps/threadmine-thread-dumps-plain-failure-* 2>/dev/null; then
+            echo "::error::a plain test failure must not produce dumps"; exit 1
+          fi
