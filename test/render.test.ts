@@ -5,7 +5,7 @@ import type { AnalysisDetail } from '../src/threadmine'
 
 const FOOTER = 'Thread dumps were analyzed at threadmine.dev. Set `analyze: false` to keep them only in the workflow artifact.'
 const dump: CollectedDump = { source: 'live-jvm', label: 'surefire-fork pid 2466', fileName: 'thread-dump-2466.txt', content: '' }
-const ctx = { analyzeEnabled: true, artifactName: 'threadmine-thread-dumps-test-linux-abc123', runUrl: 'https://github.com/o/r/actions/runs/1', marker: commentMarker('test', 'Linux') }
+const ctx = { analyzeEnabled: true, artifactName: 'threadmine-thread-dumps-test-linux-abc123', runUrl: 'https://github.com/o/r/actions/runs/1', marker: commentMarker('test', 'Linux', '') }
 
 const deadlock: AnalysisDetail = {
   id: 'a1',
@@ -32,7 +32,12 @@ const analyzed: ReportEntry = {
 
 describe('commentMarker', () => {
   it('identifies the job and OS', () => {
-    expect(commentMarker('test', 'Linux')).toBe('<!-- threadmine-action:test:Linux -->')
+    expect(commentMarker('test', 'Linux', '')).toBe('<!-- threadmine-action:test:Linux -->')
+  })
+
+  it('separates matrix legs on the same OS with a key', () => {
+    expect(commentMarker('test', 'Linux', '17')).toBe('<!-- threadmine-action:test:Linux:17 -->')
+    expect(commentMarker('test', 'Linux', '17')).not.toBe(commentMarker('test', 'Linux', '21'))
   })
 })
 
@@ -66,6 +71,10 @@ describe('renderReport', () => {
     expect(md).toContain('Not analyzed. Dump kept in the threadmine-thread-dumps-test-linux-abc123 artifact.')
     expect(md).toContain('Dumps are in the threadmine-thread-dumps-test-linux-abc123 artifact of https://github.com/o/r/actions/runs/1.')
     expect(md).not.toContain('threadmine.dev')
+  })
+
+  it('says the job failed or was cancelled while the JVMs were running', () => {
+    expect(renderReport([analyzed], ctx)).toContain('failed or was cancelled while these test JVMs were still running')
   })
 
   it('ends with the privacy footer when analyze is on', () => {

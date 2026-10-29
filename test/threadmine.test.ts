@@ -65,6 +65,21 @@ describe('analyzeDump', () => {
     expect(calls.at(-1)!.url).toBe(`https://api.test/api/v1/public/analises/${TOKEN}/detalhe`)
   })
 
+  it('passes an abort signal to every request', async () => {
+    const { calls, fetchFn } = fakeApi(['PROCESSANDO', 'CONCLUIDA'])
+    await analyzeDump(dump, opts(fetchFn))
+    expect(calls.length).toBe(4)
+    expect(calls.every((c) => c.init.signal instanceof AbortSignal)).toBe(true)
+  })
+
+  it('stops polling at the given deadline', async () => {
+    const { fetchFn } = fakeApi(['PROCESSANDO'])
+    const clock = fakeClock()
+    const outcome = await analyzeDump(dump, { ...opts(fetchFn, clock), deadline: 10_000 })
+    expect(outcome.ok).toBe(false)
+    expect(clock.now()).toBeLessThanOrEqual(13_000)
+  })
+
   it('gives up after 180 s', async () => {
     const { fetchFn } = fakeApi(['PROCESSANDO'])
     const clock = fakeClock()
@@ -86,7 +101,10 @@ describe('analyzeDump', () => {
     const clock = fakeClock()
     const outcome = await analyzeDump(dump, opts(fetchFn, clock))
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.reason).toContain('1800')
+    if (!outcome.ok) {
+      expect(outcome.reason).toContain('1800')
+      expect(outcome.rateLimited).toBe(true)
+    }
     expect(clock.sleeps.every((ms) => ms <= 3000)).toBe(true)
   })
 

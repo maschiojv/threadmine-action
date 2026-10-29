@@ -26,13 +26,15 @@ export interface AnalysisDetail {
 
 export type AnalysisOutcome =
   | { ok: true; publicToken: string; reportUrl: string; detail: AnalysisDetail }
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; rateLimited?: true }
 
 export interface AnalyzeOptions {
   apiUrl: string
   fetchFn?: typeof fetch
   sleepFn?: (ms: number) => Promise<void>
   now?: () => number
+  /** Absolute time (ms, same clock as now) after which polling stops; the per-dump limit still applies. */
+  deadline?: number
 }
 
 /** Stored by the backend as the visitor's traffic origin; this is what the success metric counts. */
@@ -42,8 +44,14 @@ const SITE_URL = 'https://threadmine.dev'
 const POLL_INTERVAL_MS = 3000
 const POLL_LIMIT_MS = 180_000
 const NETWORK_BACKOFF_MS = [1000, 2000]
+/** A half-dead API must not hold the user's runner: each request gives up after this. */
+const REQUEST_TIMEOUT_MS = 30_000
 
-class AnalysisFailed extends Error {}
+class AnalysisFailed extends Error {
+  constructor(message: string, readonly rateLimited = false) {
+    super(message)
+  }
+}
 
 /** Upload one dump to the public endpoint and wait for the result. Never throws. */
 export async function analyzeDump(dump: CollectedDump, opts: AnalyzeOptions): Promise<AnalysisOutcome> {
@@ -51,7 +59,7 @@ export async function analyzeDump(dump: CollectedDump, opts: AnalyzeOptions): Pr
   const now = opts.now ?? Date.now
   try {
     const { tokenPublico } = await api.upload(dump) as { tokenPublico: string }
-    const deadline = now() + POLL_LIMIT_MS
+    const deadline = Math.min(now() + POLL_LIMIT_MS, opts.deadline ?? Infinity)
     for (;;) {
       const result = await api.get(`/api/v1/public/analises/${encodeURIComponent(tokenPublico)}`) as {
         status: AnalysisDetail['status']
@@ -66,11 +74,12 @@ export async function analyzeDump(dump: CollectedDump, opts: AnalyzeOptions): Pr
         return { ok: false, reason: `ThreadMine could not analyze this dump${motivo}` }
       }
       if (now() + POLL_INTERVAL_MS > deadline) {
-        return { ok: false, reason: `ThreadMine did not finish the analysis within ${POLL_LIMIT_MS / 1000} s` }
+        return { ok: false, reason: `ThreadMine did not finish the analysis in time (limit ${POLL_LIMIT_MS / 1000} s)` }
       }
       await api.sleep(POLL_INTERVAL_MS)
     }
   } catch (e) {
+    if (e instanceof AnalysisFailed && e.rateLimited) return { ok: false, reason: e.message, rateLimited: true }
     return { ok: false, reason: errorMessage(e) }
   }
 }
@@ -107,6 +116,7 @@ class PublicApi {
         response = await this.fetchFn(`${this.baseUrl}${path}`, {
           method,
           headers: { 'Accept-Language': 'en' },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           ...(body ? { body: body() } : {}),
         })
         break
@@ -122,7 +132,7 @@ class PublicApi {
     if (response.status === 429) {
       const retryAfter = response.headers.get('retry-after')
       const when = retryAfter ? `retry after ${retryAfter}s` : 'retry later'
-      throw new AnalysisFailed(`ThreadMine rate limit reached (5 analyses per hour per IP); ${when}`)
+      throw new AnalysisFailed(`ThreadMine rate limit reached (5 analyses per hour per IP); ${when}`, true)
     }
     const detail = typeof problem.detail === 'string' ? `: ${problem.detail}` : ''
     throw new AnalysisFailed(`ThreadMine API error (HTTP ${response.status})${detail}`)

@@ -21,13 +21,20 @@ const MAX_STACK_LINES = 5
 const MAX_THREAD_STACKS = 3
 const FOOTER = 'Thread dumps were analyzed at threadmine.dev. Set `analyze: false` to keep them only in the workflow artifact.'
 
-/** One comment per job and OS: a re-run updates it, matrix legs on other OSes get their own. */
-export function commentMarker(job: string, os: string): string {
-  return `<!-- threadmine-action:${job}:${os} -->`
+/** One comment per job, OS and key: a re-run updates it, other matrix legs get their own. */
+export function commentMarker(job: string, os: string, key: string): string {
+  return `<!-- threadmine-action:${job}:${os}${key ? `:${key}` : ''} -->`
 }
 
 export function renderReport(entries: ReportEntry[], ctx: RenderContext): string {
-  const lines: string[] = [ctx.marker, '## ThreadMine: hung test diagnosis', '']
+  const lines: string[] = [
+    ctx.marker,
+    '## ThreadMine: hung test diagnosis',
+    '',
+    'The job failed or was cancelled while these test JVMs were still running. A hang keeps them alive, '
+      + 'and so does a run cancelled by hand or by a newer push.',
+    '',
+  ]
   for (const entry of entries) {
     lines.push(`### ${entry.dump.label}`, '')
     const outcome = entry.outcome

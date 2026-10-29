@@ -84,11 +84,12 @@ async function main(): Promise<void> {
   }
   const job = env.GITHUB_JOB ?? 'job'
   const os = env.RUNNER_OS ?? 'unknown'
+  const key = core.getInput('key').trim()
   const jcmd = findJcmd(env, existsSync)
   await runPost({
     analyzeEnabled: core.getBooleanInput('analyze'),
-    marker: commentMarker(job, os),
-    artifactName: artifactName(job, os, () => randomBytes(3).toString('hex')),
+    marker: commentMarker(job, os, key),
+    artifactName: artifactName(job, os, key, () => randomBytes(3).toString('hex')),
     runUrl: `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`,
     collect: () => collectDumps({
       jcmd,
@@ -99,7 +100,8 @@ async function main(): Promise<void> {
       startedAt: Number(core.getState('started')) || null,
       modifiedAt: async (p) => (await stat(p)).mtimeMs,
     }),
-    analyze: (d) => analyzeDump(d, { apiUrl: core.getInput('api-url') }),
+    analyze: (d, deadline) => analyzeDump(d, { apiUrl: core.getInput('api-url'), deadline }),
+    now: Date.now,
     uploadArtifact,
     writeSummary: async (md) => { await core.summary.addRaw(md).write() },
     prTarget: prTarget(),

@@ -13,6 +13,10 @@ inputs:
     description: Post the diagnosis as a pull request comment (needs pull-requests write permission).
     required: false
     default: 'true'
+  key:
+    description: Extra id for matrix jobs, so legs on the same OS get their own comment and artifact. For example the matrix Java version.
+    required: false
+    default: ''
   github-token:
     description: Token used to post the pull request comment.
     required: false

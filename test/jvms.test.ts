@@ -42,6 +42,16 @@ describe('selectHungTestJvms', () => {
     expect(pids(fixture('plain-failure.txt'))).toEqual([])
   })
 
+  it('does not fall back to a Maven launcher that runs the app instead of tests', () => {
+    expect(pids('123 org.codehaus.plexus.classworlds.launcher.Launcher -B spring-boot:run')).toEqual([])
+    expect(pids('124 org.codehaus.plexus.classworlds.launcher.Launcher exec:java -Dexec.mainClass=demo.App')).toEqual([])
+  })
+
+  it('falls back to a Maven launcher running verify or install', () => {
+    expect(pids('125 org.codehaus.plexus.classworlds.launcher.Launcher -B verify')).toEqual([125])
+    expect(pids('126 org.codehaus.plexus.classworlds.launcher.Launcher clean install -DskipITs')).toEqual([126])
+  })
+
   it('falls back to the Maven launcher when no fork is alive', () => {
     expect(pids(fixture('maven-in-process.txt'))).toEqual([2363])
   })

@@ -6,6 +6,10 @@ import type { AnalysisOutcome } from '../src/threadmine'
 
 const mkDump = (i: number): CollectedDump => ({ source: 'live-jvm', label: `surefire-fork pid ${i}`, fileName: `thread-dump-${i}.txt`, content: 'x' })
 const ok: AnalysisOutcome = { ok: true, publicToken: 't', reportUrl: 'https://threadmine.dev/resultado/t', detail: { id: 'a', status: 'CONCLUIDA' } }
+const deadlock: AnalysisOutcome = {
+  ok: true, publicToken: 't', reportUrl: 'https://threadmine.dev/resultado/t',
+  detail: { id: 'a', status: 'CONCLUIDA', problemasDetectados: { problemas: [{ tipo: 'DEADLOCK', severidade: 'CRITICAL' }] } },
+}
 
 function harness(over: Partial<PostDeps> = {}, dumps: CollectedDump[] = [mkDump(1)]) {
   const log = { infos: [] as string[], analyzed: 0, uploaded: [] as string[], summaries: [] as string[], comments: [] as string[], warnings: [] as string[] }
@@ -27,6 +31,7 @@ function harness(over: Partial<PostDeps> = {}, dumps: CollectedDump[] = [mkDump(
     commentApi,
     warn: (m) => { log.warnings.push(m) },
     info: (m) => { log.infos.push(m) },
+    now: () => 0,
     ...over,
   }
   return { deps, log }
@@ -89,10 +94,41 @@ describe('runPost', () => {
     await runPost(without.deps)
     expect(without.log.comments).toEqual([])
 
-    const withPr = harness({ prTarget: { owner: 'o', repo: 'r', issueNumber: 7 } })
+    const withPr = harness({ prTarget: { owner: 'o', repo: 'r', issueNumber: 7 }, analyze: async () => deadlock })
     await runPost(withPr.deps)
     expect(withPr.log.comments).toHaveLength(1)
     expect(withPr.log.comments[0]).toBe(withPr.log.summaries[0])
+  })
+})
+
+describe('runPost noise and time limits', () => {
+  it('does not comment when no analysis found a problem', async () => {
+    const { deps, log } = harness({ prTarget: { owner: 'o', repo: 'r', issueNumber: 7 } })
+    await runPost(deps)
+    expect(log.summaries).toHaveLength(1)
+    expect(log.comments).toEqual([])
+  })
+
+  it('stops analyzing after a rate limit', async () => {
+    let calls = 0
+    const { deps, log } = harness({
+      analyze: async () => { calls++; return { ok: false, reason: 'ThreadMine rate limit reached', rateLimited: true } },
+    }, [1, 2, 3].map(mkDump))
+    await runPost(deps)
+    expect(calls).toBe(1)
+    expect(log.summaries[0].match(/Not analyzed/g)).toHaveLength(2)
+  })
+
+  it('passes one shared deadline and skips analyses past it', async () => {
+    let t = 0
+    const deadlines: number[] = []
+    const { deps, log } = harness({
+      now: () => t,
+      analyze: async (_d, deadline) => { deadlines.push(deadline); t += 250_000; return ok },
+    }, [1, 2].map(mkDump))
+    await runPost(deps)
+    expect(deadlines).toEqual([240_000])
+    expect(log.summaries[0]).toContain('Not analyzed')
   })
 })
 
@@ -100,10 +136,14 @@ describe('artifactName', () => {
   it('artifact names are unique per job leg', () => {
     let n = 0
     const rand = () => ['aaaaaa', 'bbbbbb'][n++]
-    const first = artifactName('test', 'Linux', rand)
-    const second = artifactName('test', 'Linux', rand)
+    const first = artifactName('test', 'Linux', '', rand)
+    const second = artifactName('test', 'Linux', '', rand)
     expect(first).not.toBe(second)
     expect(first.startsWith('threadmine-thread-dumps-test-linux-')).toBe(true)
     expect(second.startsWith('threadmine-thread-dumps-test-linux-')).toBe(true)
+  })
+
+  it('puts a safe form of the key in the artifact name', () => {
+    expect(artifactName('test', 'Linux', 'java 21/x', () => 'cccccc')).toBe('threadmine-thread-dumps-test-linux-java-21-x-cccccc')
   })
 })

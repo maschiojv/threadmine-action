@@ -10,6 +10,9 @@ export type JvmKind = 'surefire-fork' | 'gradle-test-worker' | 'maven-launcher' 
 
 const LINE = /^(\d+)\s+(.+)$/
 
+/** Maven phases and goals that run tests. A launcher running anything else (spring-boot:run, exec:java) is the app. */
+const MAVEN_TEST_GOAL = /(^|\s)(test|integration-test|verify|install|deploy|package|surefire:test|failsafe:integration-test)(\s|$)/
+
 export function parseJcmdList(output: string): JvmProcess[] {
   const list: JvmProcess[] = []
   for (const raw of output.split(/\r?\n/)) {
@@ -37,7 +40,7 @@ export function selectHungTestJvms(list: JvmProcess[]): JvmProcess[] {
     return kind === 'surefire-fork' || kind === 'gradle-test-worker'
   })
   if (forks.length > 0) return forks
-  return list.filter((p) => classifyJvm(p) === 'maven-launcher')
+  return list.filter((p) => classifyJvm(p) === 'maven-launcher' && MAVEN_TEST_GOAL.test(p.command))
 }
 
 export function findJcmd(env: NodeJS.ProcessEnv, exists: (p: string) => boolean): string | null {
