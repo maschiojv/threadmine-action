@@ -92,7 +92,7 @@ Surefire 3.6.0 it can write a jstack dump right before the kill, and this action
 
 ## Limits
 
-- Analyses without an account are limited to 5 per hour per IP. GitHub-hosted runners share IPs,
+- Analyses without an account are limited to 5 per hour and 20 per day per IP. GitHub-hosted runners share IPs,
   so a busy hour can hit the limit. The dumps still land in the artifact, and the summary says why
   the analysis was skipped.
 - Pull requests from forks get a read-only token, so there is no comment. The job summary still
